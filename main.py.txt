@@ -1,0 +1,39 @@
+from fastapi import FastAPI, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from fastapi_pagination import Page, add_pagination, paginate
+from fastapi_pagination.limit_offset import LimitOffsetPage, Params
+
+from . import models, schemas, crud
+from .database import SessionLocal, engine
+from sqlalchemy.exc import IntegrityError
+
+models.Base.metadata.create_all(bind=engine)
+
+app = FastAPI()
+
+# Dependência do banco de dados
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@app.post("/atletas/", response_model=schemas.Atleta)
+def create_atleta(atleta: schemas.AtletaCreate, db: Session = Depends(get_db)):
+    try:
+        db_atleta = crud.create_atleta(db, atleta)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=303,
+            detail=f"Já existe um atleta cadastrado com o cpf: {atleta.cpf}"
+        )
+    return db_atleta
+
+@app.get("/atletas/", response_model=LimitOffsetPage[schemas.Atleta])
+def read_atletas(nome: str = None, cpf: str = None, db: Session = Depends(get_db), params: Params = Depends()):
+    atletas = crud.get_atletas(db, skip=params.offset, limit=params.limit, nome=nome, cpf=cpf)
+    return paginate(atletas, params)
+
+add_pagination(app)
